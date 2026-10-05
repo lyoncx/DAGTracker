@@ -1,8 +1,6 @@
 # DAGTracker: Detection-Association-Global Optimization for Dense Vehicle Tracking in Satellite Videos
 ![DAGTracker framework](readme/framework.png)
-This repository contains the implementation and supplementary resources for **DAGTracker**, a three-stage framework for multi-object tracking of small and densely distributed vehicles in satellite videos.
-
-The accompanying paper presents a detection-association-global optimization pipeline designed for dim targets, motion blur, dense traffic, occlusion, and fragmented trajectories.
+we propose a three-stage multi-object tracking method named DAGTracker (Detection–Association–Global Optimization Tracker). In the detection stage, we propose a motion-guided 3D sparse detection network that uses frame differencing to capture pixel-level motion and performs 3D sparse convolution only at these locations. We further introduce a Motion Margin Loss (MMLoss) that leverages optical flow to adaptively calibrate fast-moving target confidence, thereby alleviating motion-blur-induced missed detections. In the association stage, we incorporate road prior constraints combined with trajectory cycle management to effectively suppress false associations in non-road areas. In the global optimization stage, we construct a spatio-temporal graph cost matrix that leverages the full temporal information of satellite videos to optimize fragmented trajectories, achieving long-term continuous tracking. Experimental results on the VDD-VEH dataset demonstrate that our method achieves 57.5\% MOTA and 70.2\% IDF1, validating its effectiveness for dense vehicle tracking in satellite videos.
 
 ## Highlights
 

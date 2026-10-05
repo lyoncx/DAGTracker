@@ -53,8 +53,6 @@ FLOW_DIR must contain the precomputed optical-flow results required by MMLoss. Y
 The following command reproduces the reported unsupervised iterative MMLoss training setup:
 
 ```bash
-mkdir -p "${OUTPUT_DIR}"
-
 python train_sp_update.py --task ctdet_points --model_name sp_centerDet_minus --layers 3 --gpus 0,1 --datasetname rs_car --data_mode multi --data_dir "${DATA_DIR}" --exp_name DAGTracker --sup_mode 0 --unsup_iter 10 --off_flag True --down_ratio 1 --seqLen 20 --conf_filtered 0.2 --val_intervals 2 --lr 1.25e-4 --lr_step 30,45 --num_epochs 55 --batch_size 8 --data_sampling 5 --save_dir "${OUTPUT_DIR}" --use_mmloss --mmloss_scale 3.5 --mmloss_version v3 --flow_dir "${FLOW_DIR}"
 ```
 
@@ -72,18 +70,7 @@ The training configuration uses two GPUs (`0,1`). Change `--gpus` and `--batch_s
 Set `MODEL_PATH` to the trained checkpoint and run:
 
 ```bash
-PYTHON_CMD=python
-SCRIPT_PATH=test.py
-MODEL_PATH=/path/to/weights/model_mmloss.pth
-DATA_DIR=/path/to/crop_datasets/
-FLOW_DIR="${DATA_DIR}/flow"
-
-if [ ! -f "${MODEL_PATH}" ]; then
-  echo "Checkpoint not found: ${MODEL_PATH}"
-  exit 1
-fi
-
-"${PYTHON_CMD}" "${SCRIPT_PATH}" --task ctdet_points --model_name sp_centerDet_minus --layers 3 --gpus 0 --datasetname rs_car --data_mode multi --data_dir "${DATA_DIR}" --sup_mode 0 --off_flag True --down_ratio 1 --seqLen 20 --load_model "${MODEL_PATH}" --use_mmloss --mmloss_scale 3.5 --mmloss_version v3 --flow_dir "${FLOW_DIR}"
+python test.py --task ctdet_points --model_name sp_centerDet_minus --layers 3 --gpus 0 --datasetname rs_car --data_mode multi --data_dir "${DATA_DIR}" --sup_mode 0 --off_flag True --down_ratio 1 --seqLen 20 --load_model "${MODEL_PATH}" --use_mmloss --mmloss_scale 3.5 --mmloss_version v3 --flow_dir "${FLOW_DIR}"
 ```
 
 The test command uses one GPU and loads the MMLoss-trained checkpoint. Make sure there is a space before each continued option; in particular, `--load_model` and `--use_mmloss` must remain separate arguments.

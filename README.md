@@ -59,8 +59,7 @@ python train_sp_update.py --task ctdet_points --model_name sp_centerDet_minus --
 To resume training from a checkpoint, append the following options and replace the checkpoint path:
 
 ```bash
-  --load_model /path/to/checkpoint/model_last.pth \
-  --resume True
+  --load_model /path/to/checkpoint/model_last.pth --resume True
 ```
 
 The training configuration uses two GPUs (`0,1`). Change `--gpus` and `--batch_size` according to the available hardware.

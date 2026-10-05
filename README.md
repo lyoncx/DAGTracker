@@ -96,7 +96,6 @@ If you find this project useful, please consider citing the following works.
 ### DAGTracker
 
 ```bibtex
-% Replace this entry with the final bibliographic information of your paper.
 @article{dagtracker,
   title   = {DAGTracker: A Three-Stage Framework for Satellite-Video Multi-Object Tracking},
   author  = {Chengxin Liang, Huyi Song, Jia Shao, Du Bo},

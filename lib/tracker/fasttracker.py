@@ -39,12 +39,6 @@ class STrack(BaseTrack):
 
         self.track_id = STrack.count
         STrack.count += 1
-        # 新增：论文隐含需求——缓存历史mean状态（用于计算运动方向）
-        self.max_history_len = 100  # 限制缓存长度（避免内存占用，论文无明确值）
-
-        self.class_id = class_id    # 轨迹类别（类感知建模）
-
-        self.history = {}
 
 
     def predict(self):

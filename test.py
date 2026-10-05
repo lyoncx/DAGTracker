@@ -41,7 +41,6 @@ if __name__ == '__main__':
     results_name = opt.model_name + '_' + modelPath.split('/')[-2] + \
                    '_' + modelPath.split('/')[-1].split('.')[0]
 
-    # test_update(opt, split, modelPath, show_flag, results_name, save_mat=False, epoch=0)
 
     if opt.track:
         print('Using fast tracking test function!')

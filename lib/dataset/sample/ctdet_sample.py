@@ -16,20 +16,111 @@ from lib.utils1.augmentations import Augmentation_st
 from lib.dataset.data_aug.data_aug import RandomSampleCrop
 import torch.utils.data as data
 
+FLOW_MAGIC = b'PIEH'
+
+
+def _safe_load_coords(path):
+    """从路径加载坐标文件，若不存在/为空则返回 None。"""
+    if not path or not os.path.exists(path):
+        return None
+    if os.path.getsize(path) == 0:
+        return None
+    try:
+        coords = np.loadtxt(path)
+        if coords.size == 0:
+            return None
+        return coords.reshape(-1, 6)
+    except Exception as e:
+        warnings.warn(f"加载坐标失败 {path}: {e}")
+        return None
+
+
+def _coords_to_anns(coords):
+    """将坐标数组转换为 ctdet 训练所需的 anns 结构。"""
+    if coords is None:
+        return []
+    return [[coords[i, 0], coords[i, 1], coords[i, 2], coords[i, 3],
+             coords[i, 4], coords[i, 5]] for i in range(coords.shape[0])]
+
+
+def _read_flo_file(flow_path):
+    """读取 .flo 文件并返回 [H, W, 2] 光流."""
+    with open(flow_path, 'rb') as f:
+        header = f.read(4)
+        if header != FLOW_MAGIC:
+            raise ValueError(f"{flow_path} 不是有效的 .flo 文件（缺少 PIEH 头）")
+        width = np.fromfile(f, np.int32, 1).squeeze()
+        height = np.fromfile(f, np.int32, 1).squeeze()
+        data = np.fromfile(f, np.float32, width * height * 2)
+    return data.reshape((height, width, 2))
+
+
+def _load_flow_magnitude(flow_path):
+    """加载光流强度，兼容 .npy/.flo."""
+    ext = os.path.splitext(flow_path)[1].lower()
+    if ext == '.npy':
+        return np.load(flow_path)
+    if ext == '.flo':
+        flow = _read_flo_file(flow_path)
+        return np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2)
+    raise ValueError(f"不支持的光流格式: {flow_path}")
+
+
+# 缓存文件查找结果，避免重复的文件系统访问
+_flow_file_cache = {}
+
+def _resolve_flow_file(flow_dir, split, video_id, frame_id):
+    """在多种目录/后缀组合中查找光流文件（带缓存）."""
+    frame_name = f"{frame_id:06d}"
+    cache_key = (flow_dir, split, video_id, frame_name)
+    
+    # 检查缓存
+    if cache_key in _flow_file_cache:
+        return _flow_file_cache[cache_key]
+    
+    # 查找文件
+    base_candidates = []
+    if split:
+        base_candidates.append(os.path.join(flow_dir, split, video_id, frame_name))
+    base_candidates.append(os.path.join(flow_dir, video_id, frame_name))
+    for base in base_candidates:
+        for ext in ('.npy', '.flo'):
+            candidate = base + ext
+            if os.path.exists(candidate):
+                _flow_file_cache[cache_key] = candidate
+                return candidate
+    
+    # 文件不存在，缓存 None
+    _flow_file_cache[cache_key] = None
+    return None
+
 class CTDetDataset(data.Dataset):
 
     def get_im_ids(self, img_id):
         img_info = self.coco.loadImgs(ids=[img_id])[0]
+        # video_id = img_info['video_id']
         video_id = img_info['video_id']
         video_frame_id = img_info['video_frame_id']
-        video_len = img_info['video_len']
+        video_len = self.video_lens[video_id]
         video_info = self.video_to_images[video_id]
 
-        if video_len - self.seqLen < video_frame_id:
-            video_frame_id_cur = video_len - self.seqLen
-            img_id = video_info[video_frame_id_cur - 1][0]
+        # 处理边界情况
+        if video_frame_id + self.seqLen - 1 > video_len:
+            start_frame_id = video_len - self.seqLen + 1
+        else:
+            start_frame_id = video_frame_id
 
-        im_ids = [img_id + i for i in range(self.seqLen)]
+        im_ids = []
+        for i in range(self.seqLen):
+            curr_frame_id = start_frame_id + i
+            if curr_frame_id in video_info:
+                img_id_i = video_info[curr_frame_id]['id']
+                im_ids.append(img_id_i)
+            else:
+                # 处理缺失的帧，例如跳过或填充
+                print(f"Frame {curr_frame_id} not found in video {video_id}")
+                continue
+
         return im_ids
 
     def get_heatmap(self, num_classes, output_h, output_w, c, s, bbox_tol, cls_id_tol):
@@ -109,9 +200,13 @@ class CTDetDataset(data.Dataset):
             anns1 = [[coords[i, 0], coords[i, 1], coords[i, 2], coords[i, 3],
                      coords[i, 4], coords[i, 5]] for i in range(coords.shape[0])]
         elif self.opt.sup_mode == 3: #load the generated updated labels
-            coords = np.loadtxt(
-                self.img_dir + file_name.replace('images', 'lrsd').replace('img1', 'coords_update').replace(
-                    '.jpg', '.txt')).reshape(-1, 6)
+            coords_path = os.path.join(
+                    self.img_dir,
+                    'lrsd',
+                    file_name.replace('img1', 'coords_update').replace('.jpg', '.txt')
+                )
+            # print("coords_path:", coords_path)
+            coords = np.loadtxt(coords_path).reshape(-1, 6)
             anns1 = [[coords[i, 0], coords[i, 1], coords[i, 2], coords[i, 3],
                       coords[i, 4], coords[i, 5]] for i in range(coords.shape[0])]
         else:
@@ -168,6 +263,85 @@ class CTDetDataset(data.Dataset):
             else:
                 v1 = np.concatenate(v, axis=1)
             ret_multi[k] = v1
+        
+        # 加载光流数据（如果启用 MMLoss 或将光流作为输入，或使用光流分支）
+        if ((hasattr(self.opt, 'use_mmloss') and self.opt.use_mmloss) or
+            (hasattr(self.opt, 'use_flow_input') and self.opt.use_flow_input) or
+            (hasattr(self.opt, 'use_flow_branch') and self.opt.use_flow_branch)):
+            flow_scores = []
+            flow_dir = getattr(self.opt, 'flow_dir', '')
+            
+            if flow_dir:
+                # 获取视频ID和帧ID信息
+                img_info = self.coco.loadImgs(ids=[img_id])[0]
+                video_id = img_info['video_id']
+                video_frame_id = img_info['video_frame_id']
+                video_len = self.video_lens[video_id]
+                
+                # 计算起始帧ID
+                if video_frame_id + self.seqLen - 1 > video_len:
+                    start_frame_id = video_len - self.seqLen + 1
+                else:
+                    start_frame_id = video_frame_id
+                
+                # 加载每一对相邻帧的光流
+                for t in range(self.seqLen - 1):
+                    curr_frame_id = start_frame_id + t
+                    next_frame_id = start_frame_id + t + 1
+                    
+                    flow_file = _resolve_flow_file(flow_dir, self.split, video_id, curr_frame_id)
+                    if flow_file:
+                        try:
+                            flow_magnitude = _load_flow_magnitude(flow_file)
+                            flow_scores.append(flow_magnitude)
+                        except Exception as e:
+                            print(f"Warning: Failed to load flow file {flow_file}: {e}")
+                            # 如果加载失败，使用零填充
+                            if len(flow_scores) > 0:
+                                flow_scores.append(np.zeros_like(flow_scores[0]))
+                            else:
+                                # 如果这是第一个，需要知道图像尺寸
+                                # 从输入图像获取尺寸
+                                h, w = ret_multi['input'].shape[2], ret_multi['input'].shape[3]
+                                flow_scores.append(np.zeros((h, w), dtype=np.float32))
+                    else:
+                        # 如果文件不存在，使用零填充
+                        if len(flow_scores) > 0:
+                            flow_scores.append(np.zeros_like(flow_scores[0]))
+                        else:
+                            h, w = ret_multi['input'].shape[2], ret_multi['input'].shape[3]
+                            flow_scores.append(np.zeros((h, w), dtype=np.float32))
+                
+                if len(flow_scores) > 0:
+                    # 堆叠为 [T-1, H, W]
+                    flow_stack = np.stack(flow_scores, axis=0).astype(np.float32)
+                    ret_multi['flow_score'] = flow_stack
+
+                    # 为光流分支提供完整的时间序列光流数据，保留时间动态信息
+                    # 光流有 T-1 帧（相邻帧之间的光流），图像序列有 T 帧
+                    # 需要将 [T-1, H, W] 扩展为 [T, H, W]，通过复制首尾帧对齐
+                    # 方法：第一帧复制一次，最后一帧也复制一次
+                    T_seq = self.seqLen  # 图像序列长度
+                    T_flow = flow_stack.shape[0]  # 光流帧数 (T-1)
+                    if T_flow == T_seq - 1:
+                        # 在开头和结尾各复制一帧，得到 [T, H, W]
+                        flow_expanded = np.zeros((T_seq, flow_stack.shape[1], flow_stack.shape[2]), 
+                                                dtype=np.float32)
+                        flow_expanded[0] = flow_stack[0]  # 第一帧：复制第一个光流
+                        flow_expanded[1:-1] = flow_stack[1:]  # 中间帧：使用原始光流
+                        flow_expanded[-1] = flow_stack[-1]  # 最后一帧：复制最后一个光流
+                    else:
+                        # 如果数量不匹配，使用插值或复制（fallback）
+                        flow_expanded = np.zeros((T_seq, flow_stack.shape[1], flow_stack.shape[2]), 
+                                                dtype=np.float32)
+                        # 简单复制策略：将 T-1 帧光流平均分布到 T 帧
+                        indices = np.linspace(0, T_flow - 1, T_seq, dtype=np.int32)
+                        flow_expanded = flow_stack[indices]
+                    
+                    # flow_branch 期望 batch['flow'] 形状为 [B, 1, H, W, T] 或 [B, 1, H, W]
+                    # 这里提供完整时间序列 [T, H, W]，在模型中处理
+                    ret_multi['flow'] = flow_expanded.astype(np.float32)
+                    
         return ret_multi
 
     def get_aug(self, annos=None):
@@ -250,9 +424,13 @@ class CTDetDataset(data.Dataset):
                 anns1 = [[coords[i, 0], coords[i, 1], coords[i, 2], coords[i, 3],
                           coords[i, 4], coords[i, 5]] for i in range(coords.shape[0])]
             elif self.opt.sup_mode == 3:  # load the generated updated labels
-                coords = np.loadtxt(
-                    self.img_dir + file_name.replace('images', 'lrsd').replace('img1', 'coords_update').replace(
-                        '.jpg', '.txt')).reshape(-1, 6)
+                coords_path = os.path.join(
+                    self.img_dir,
+                    'lrsd',
+                    file_name.replace('img1', 'coords_update').replace('.jpg', '.txt')
+                )
+                # print("coords_path:", coords_path)
+                coords = np.loadtxt(coords_path).reshape(-1, 6)
                 anns1 = [[coords[i, 0], coords[i, 1], coords[i, 2], coords[i, 3],
                           coords[i, 4], coords[i, 5]] for i in range(coords.shape[0])]
             else:
@@ -269,5 +447,4 @@ class CTDetDataset(data.Dataset):
             ret = self.get_multi(img_id)
         else:
             raise Exception('Not a valid data mode!!!')
-        ####get results
         return img_id, ret

@@ -47,6 +47,12 @@ class opts(object):
         self.parser.add_argument('--seqLen', type=int, default=20,
                                  help='number of images for per sample. Currently supports 5.')
 
+        self.parser.add_argument('--snapshot_file', type=int, default=1000,
+                                 help='1000 iterations per epoch.')
+        self.parser.add_argument('--mode', type=str, default='ms',
+                                 help='lstm mode. m for move | s for space | ms for both.')
+
+
         # test
         self.parser.add_argument('--nms', action='store_true',
                                  help='run nms in testing.')
@@ -62,6 +68,10 @@ class opts(object):
         # save
         self.parser.add_argument('--save_dir', type=str, default='./weights',
                                  help='savepath of model.')
+        self.parser.add_argument('--track_results_dir', type=str, default='./results/',
+                                 help='savepath of results.')
+        self.parser.add_argument('--auto_test', type=bool, default=False,
+                                 help='whether or not this is an auto test for optuna.')
 
         # dataset
         self.parser.add_argument('--data_mode', type=str, default='multi',
@@ -95,6 +105,45 @@ class opts(object):
         self.parser.add_argument('--off_weight', type=float, default=1.0,
                                  help='offset weight in loss.')
 
+        # tracking
+        self.parser.add_argument('--track', type=bool, default=True,
+                                 help='whether or not to do tracking.')
+        self.parser.add_argument('--conf_thres', type=float, default=0.3,
+                                 help='confidence threshold to filter out boxes.')
+        self.parser.add_argument('--track_buffer', type=int, default=30,
+                                 help='tracking buffer')
+        self.parser.add_argument('--track_thresh', type=float, default=0.6,
+                                 help='track_thresh')    
+        self.parser.add_argument('--match_thresh', type=float, default=0.8,
+                                 help='match_thresh')
+        self.parser.add_argument('--min_box_area', type=int, default=100,
+                                 help='min_box_area')
+        self.parser.add_argument('--reset_velocity_offset_occ', type=int, default=5,
+                                 help='reset_velocity_offset_occ')
+        self.parser.add_argument('--reset_pos_offset_occ', type=int, default=3,
+                                 help='reset_pos_offset_occ')
+        self.parser.add_argument('--enlarge_bbox_occ', type=float, default=1.2,
+                                 help='enlarge_bbox_occ')
+        self.parser.add_argument('--dampen_motion_occ', type=float, default=0.85,
+                                 help='dampen_motion_occ')
+        self.parser.add_argument('--active_occ_to_lost_thresh', type=int, default=15,
+                                 help='active_occ_to_lost_thresh')    
+        self.parser.add_argument('--init_iou_suppress', type=float, default=0.5,
+                                 help='init_iou_suppress')  
+        self.parser.add_argument('--use_global_optim', type=bool, default=False,
+                                 help='use_global_optim')   
+        
+        # Motion Margin Loss (MMLoss) from MMTracker
+        self.parser.add_argument('--use_mmloss', action='store_true',
+                                 help='use motion margin loss from MMTracker')
+        self.parser.add_argument('--mmloss_scale', type=float, default=10,
+                                 help='scale factor for motion margin loss (default: 10)')
+        self.parser.add_argument('--mmloss_version', type=str, default='v3',
+                                 choices=['v1', 'v2', 'v3'],
+                                 help='version of motion margin loss: v1 (flow_ldam), v2 (flow_ldam_v2), v3 (flow_ldam_v3, recommended)')
+        self.parser.add_argument('--flow_dir', type=str, default='/home/liangcx/datasets/crop_datasets/flow',
+                                 help='directory containing pre-computed optical flow files (optional)')
+        
     def parse(self, args=''):
         if args == '':
             opt = self.parser.parse_args()

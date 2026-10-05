@@ -18,7 +18,23 @@ import cv2
 class CtdetLoss(torch.nn.Module):
     def __init__(self, opt):
         super(CtdetLoss, self).__init__()
-        self.crit = FocalLoss()  # torch.nn.MSELoss()
+        # 检查是否使用 MMLoss
+        self.use_mmloss = getattr(opt, 'use_mmloss', False)
+        self.mmloss_scale = getattr(opt, 'mmloss_scale', 10)
+        self.mmloss_version = getattr(opt, 'mmloss_version', 'v3')
+        
+        if self.use_mmloss:
+            from lib.loss.losses import FocalLossWithMMLoss
+            self.crit = FocalLossWithMMLoss(
+                use_mmloss=True, 
+                mmloss_scale=self.mmloss_scale,
+                mmloss_version=self.mmloss_version
+            )
+            print(f"Using Motion Margin Loss (MMLoss) with scale={self.mmloss_scale}, version={self.mmloss_version}")
+        else:
+            self.crit = FocalLoss()  # torch.nn.MSELoss()
+
+        # self.crit = FocalLoss()  # torch.nn.MSELoss()
         # self.crit = torch.nn.MSELoss()
         self.crit_reg = RegL1Loss()  # RegLoss()
         self.crit_wh = torch.nn.L1Loss(reduction='sum')  # NormRegL1Loss() # RegWeightedL1Loss()
@@ -37,7 +53,55 @@ class CtdetLoss(torch.nn.Module):
 
         for it in range(t):
             if self.opt.hm_flag:
-                hm_loss += self.crit(output['hm'][:,:,it].contiguous(), batch['hm'][:,:,it]) / self.num_stacks
+                # 检查是否有光流信息
+                flow_score = None
+                if self.use_mmloss and 'flow_score' in batch:
+                    # flow_score 的形状是 [B, T-1, H, W]，其中 T-1 = seqLen-1 = 19
+                    # 输出热图的形状是 [B, C, T, H, W]，其中 T = seqLen = 20
+                    # 光流对应相邻帧对：帧0->1, 1->2, ..., 18->19
+                    flow_data = batch['flow_score']
+                    
+                    # 处理不同的形状
+                    if len(flow_data.shape) == 4:
+                        # [B, T-1, H, W] - 光流有 T-1 个时间步
+                        # 对于时间步 it，使用对应的光流
+                        # it=0: 使用 flow_data[:, 0] (帧0->1的光流)
+                        # it=1: 使用 flow_data[:, 1] (帧1->2的光流)
+                        # ...
+                        # it=18: 使用 flow_data[:, 18] (帧18->19的光流)
+                        # it=19: 使用 flow_data[:, 18] (最后一帧，使用最后一个光流)
+                        if it < flow_data.shape[1]:
+                            # 正常情况：it 在 [0, T-2] 范围内
+                            flow_score = flow_data[:, it]  # [B, H, W]
+                        elif it == flow_data.shape[1]:
+                            # it = T-1，使用最后一个光流
+                            flow_score = flow_data[:, -1]  # [B, H, W]
+                        else:
+                            # it > T-1，不应该发生，但使用最后一个光流
+                            flow_score = flow_data[:, -1]  # [B, H, W]
+                    elif len(flow_data.shape) == 3:
+                        # [B, H, W] - 假设对所有时间步使用相同的光流
+                        flow_score = flow_data
+                    else:
+                        # 形状不匹配，跳过 MMLoss（不打印警告，避免日志过多）
+                        flow_score = None
+                
+                if flow_score is not None:
+                    # 使用 MMLoss
+                    hm_loss += self.crit(
+                        output['hm'][:,:,it].contiguous(), 
+                        batch['hm'][:,:,it],
+                        flow_score=flow_score
+                    ) / self.num_stacks
+                else:
+                    # 使用标准 Focal Loss
+                    hm_loss += self.crit(
+                        output['hm'][:,:,it].contiguous(), 
+                        batch['hm'][:,:,it]
+                    ) / self.num_stacks
+                    
+            # if self.opt.hm_flag:
+            #     hm_loss += self.crit(output['hm'][:,:,it].contiguous(), batch['hm'][:,:,it]) / self.num_stacks
 
             if self.opt.wh_flag:
                 wh_loss += self.crit_reg(

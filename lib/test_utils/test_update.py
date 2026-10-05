@@ -34,11 +34,13 @@ def test_update(opt, split, modelPath, show_flag, results_name, save_mat=False, 
     num_classes = dataset.num_classes
     max_per_image = opt.K
 
-    test_upper_path = opt.data_dir + 'images/train/'
+    test_upper_path = opt.data_dir + 'lrsd/'
     data_folder_list = os.listdir(test_upper_path)
     patch_len = opt.seqLen
 
-    save_mat_path_upper = test_upper_path.replace('images', 'lrsd')
+    # save_mat_path_upper = test_upper_path.replace('images', 'lrsd')
+    # save_mat_path_upper = os.path.join(test_upper_path, 'train')
+    save_mat_path_upper = test_upper_path
 
     for ii in range(len(data_folder_list)):
         data_folder_path = os.path.join(test_upper_path, data_folder_list[ii], 'img1')

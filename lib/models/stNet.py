@@ -15,6 +15,7 @@ def model_lib(model_chose):
 def get_det_net(heads, model_name, img_size, img_num, opt, thresh=None):
     model_func = model_lib(model_name)
     if model_name == 'sp_centerDet_minus':
+        print("Creating model with image size:", img_size, "and image number:", img_num)
         model = model_func(heads, img_size, img_num, layers=opt.layers, thresh=thresh)
     else:
         model = model_func(heads)

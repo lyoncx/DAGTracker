@@ -31,9 +31,9 @@ class COCO_rs_car(data.Dataset):
     opt = opts().parse()
     num_classes = 1
     default_resolution = [512,512]
-    mean = np.array([0.49965, 0.49965, 0.49965],
-                    dtype=np.float32).reshape(1, 1, 3)
-    std = np.array([0.08255, 0.08255, 0.08255],
+    mean = np.array([0.38434244, 0.39927128, 0.40647057],
+                   dtype=np.float32).reshape(1, 1, 3)
+    std  = np.array([0.22243345, 0.20113824, 0.18217237],
                    dtype=np.float32).reshape(1, 1, 3)
     def __init__(self, opt, split):
         super(COCO_rs_car, self).__init__()
@@ -50,16 +50,16 @@ class COCO_rs_car(data.Dataset):
         self.img_dir = self.opt.data_dir
 
         if split == 'train':
-            self.resolution = [320, 320]
-            self.resolution_ori = [512, 512]
+            self.resolution = [512,512]
+            self.resolution_ori = [512,512]
             self.annot_path = os.path.join(
                 self.img_dir0, 'annotations',
-                'train_mot.json')
+                'train.json').format(split)
         else:
-            self.resolution = [1024, 1024]
+            self.resolution = [512,512]
             self.annot_path = os.path.join(
                 self.img_dir0, 'annotations',
-                'test1024_mot.json')
+                'test.json').format(split)
 
         self.down_ratio = opt.down_ratio
         self.max_objs = opt.K
@@ -80,12 +80,25 @@ class COCO_rs_car(data.Dataset):
         self.num_samples = len(self.images)
 
         print('Loaded {} {} samples'.format(split, self.num_samples))
-        self.video_to_images = defaultdict(list)
+        self.video_to_images = defaultdict(dict)
+        self.video_lens = {}
         count=0
         for image in self.coco.dataset['images']:
-            self.video_to_images[image['video_id']].append([self.images[count],image])
-            count+=1
+            file_name = image['file_name']
+            path_parts = os.path.normpath(file_name).split(os.sep)
+            video_frame_id = int(file_name.split('/')[-1].split('.')[0])
+            video_id = path_parts[1]
+            image['video_id'] = video_id
+            image['video_frame_id'] = video_frame_id
+            # 使用 video_frame_id 作为键，image 作为值
+            self.video_to_images[video_id][video_frame_id] = image
 
+        # 计算每个视频的总帧数
+        for video_id, frames in self.video_to_images.items():
+            frame_ids = frames.keys()
+            video_len = max(frame_ids)
+            self.video_lens[video_id] = video_len
+            
         if(split=='train'):
             self.aug = Augmentation()
         else:

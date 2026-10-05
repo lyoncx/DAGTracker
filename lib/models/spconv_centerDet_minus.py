@@ -12,7 +12,7 @@ class spcenterDet(nn.Module):
         self.thresh=thresh
         input_channels = 4
         head_conv=128
-        grid_size = np.array([image_size[0], image_size[1], img_num - 1])
+        grid_size = np.array([image_size[1], image_size[0], img_num - 1])
         self.points_all = img_num*image_size[0]*image_size[1]
         if  layers==4:
             self.sp_backbone = UNetV2(input_channels, grid_size)
@@ -22,9 +22,12 @@ class spcenterDet(nn.Module):
             self.sp_backbone = UNetV2_2(input_channels, grid_size)
         else:
             raise Exception('Not a valid mode!!!!!')
-        head_input_channel = self.sp_backbone.num_point_features
+        head_input_channel = self.sp_backbone.num_point_features#16
         ###get head conv
         self.heads = heads
+
+        self.feature = None
+
         for head in self.heads:
             classes = self.heads[head]
             name_1 = 'subm1'+head
@@ -32,9 +35,9 @@ class spcenterDet(nn.Module):
             if head_conv > 0:
                 if 'hm' in head:
                     fc = spconv.SparseSequential(
-                            spconv.SubMConv3d(head_input_channel, head_conv, 3, padding=1, bias=False, indice_key=name_1),
+                        spconv.SubMConv3d(head_input_channel, head_conv, 3, padding=1, bias=False, indice_key=name_1),#16,128,3*3
                         nn.ReLU(),
-                        spconv.SubMConv3d(head_conv, classes, 3, padding=1, bias=True, indice_key=name_2),
+                        spconv.SubMConv3d(head_conv, classes, 3, padding=1, bias=True, indice_key=name_2),#128,3,3*3
                         )
                 else:
                     fc = spconv.SparseSequential(
@@ -49,19 +52,29 @@ class spcenterDet(nn.Module):
                 fc[-1].bias.data.fill_(-2.19)
             self.__setattr__(head, fc)
 
-            self.sigmoid = nn.Sigmoid()
 
+
+#定义一个 Sigmoid 激活函数，用于将某些输出映射到 [0, 1] 之间，常用于概率预测。
+            self.sigmoid = nn.Sigmoid()
+#定义一个可训练参数 tau，初始化为 1。该参数可能用于调节损失函数或其他动态调整机制。
             self.tau = torch.nn.Parameter(torch.FloatTensor(1), requires_grad=True)
+
             self.tau.data.fill_(1)
+            
             self.conv_std = nn.Sequential(
+                #对输入特征图进行自适应平均池化，将其大小调整为 1x1，相当于全局平均池化。
                 nn.AdaptiveAvgPool2d([1, 1]),
+                #一个 1x1 的卷积层，用于调整通道数或进行线性变换。
                 nn.Conv2d(img_num, img_num, 1),
+                #ReLU 激活函数，增加非线性。
                 nn.ReLU(inplace=True)
             )
-
+#另一个 ReLU 激活函数，用于网络的其他部分。
             self.relu = nn.ReLU(inplace=True)
 
     def preprocess(self, img, img_gray):
+        # print(f"Preprocessing image of shape: {img.shape}")
+        # print(f"Preprocessing grayscale image of shape: {img_gray.shape}")
         mask_all = torch.zeros_like(img_gray)
         diff = img_gray - torch.median(img_gray[:,:,::3], 2)[0].unsqueeze(2)
         diff = abs(diff)
@@ -83,6 +96,8 @@ class spcenterDet(nn.Module):
         batch_dict['voxel_features'] = features
         batch_dict['voxel_coords'] = coords.to(features.device)
         batch_dict['batch_size'] = img_gray.shape[0]
+        # print(f"Batch dict voxel features shape: {batch_dict['voxel_features'].shape}")
+        # print(f"Batch dict voxel coords shape: {batch_dict['voxel_coords'].shape}")
         del img, img_gray
         return batch_dict, diff0, mask_all
 
@@ -102,12 +117,21 @@ class spcenterDet(nn.Module):
                 spatial_features = torch.clamp(spatial_features, min=1e-4, max=1 - 1e-4)
             else:
                 spatial_features = out_h.dense()
+            
+            # print(f"Head: {head}, Output shape: {spatial_features.shape}")
+            
             z[head] = spatial_features
+        #diff0：计算得到的原始差异图,mask_all：一个全零的掩膜图，稍后用于训练中的其他任务
+        #z['mask_all'] 存储了掩膜图，z['voxel_coords'] 存储了体素坐标，z['lasso'] 存储了掩膜的总和
+        self.feature = input_sp_tensor.dense()
+        print("Feature shape:", self.feature.shape)
+        
         z['mask_all'] = diff0
         z['voxel_coords'] = batch_dict['voxel_coords']
         z['lasso'] = torch.sum(mask_all, dim=[-1,-2]) / (h * w)
         return [z]
 
 def sp_centerDet_minus(heads, image_size = [512,512], img_num = 20, layers=4, thresh=None):
+    print("Creating sp_centerDet_minus model with image size:", image_size, "and image number:", img_num)
     model = spcenterDet(heads,  image_size = image_size, img_num = img_num, layers=layers, thresh=thresh)
     return model

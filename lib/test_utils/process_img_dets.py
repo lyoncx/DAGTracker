@@ -10,7 +10,8 @@ from lib.external1.nms import soft_nms
 from lib.test_utils.get_coords import *
 
 def pre_process(image, scale=1):
-    height, width = image.shape[2:4]
+    # height, width = image.shape[2:4]
+    height, width = image.shape[-2:]
     new_height = int(height * scale)
     new_width = int(width * scale)
 
@@ -25,9 +26,15 @@ def pre_process(image, scale=1):
 
 def preprocess(img_list, dataset):
     seq_num = len(img_list)
-    img = np.zeros([dataset.resolution[0], dataset.resolution[1], 3, seq_num])
-    imgs = np.zeros([dataset.resolution[0], dataset.resolution[1], 3, seq_num])
-    imgs_gray = np.zeros([dataset.resolution[0], dataset.resolution[1], 1, seq_num])
+    if dataset.resolution[0] > dataset.resolution[1]:
+        # 说明 resolution 定义是 [Width, Height]
+        W, H = dataset.resolution[0], dataset.resolution[1]
+    else:
+        # 说明 resolution 定义是 [Height, Width]
+        H, W = dataset.resolution[0], dataset.resolution[1]
+    img = np.zeros([H, W, 3, seq_num])
+    imgs = np.zeros([H, W, 3, seq_num])
+    imgs_gray = np.zeros([H, W, 1, seq_num])
     a1 = time.time()
     for ii in range(seq_num):
         img_id_cur = img_list[ii]
@@ -66,21 +73,44 @@ def process(model, image, return_time, opt, K=128):
         torch.cuda.synchronize()
         forward_time = time.time()
 
+        # wh_nonzero = wh[wh != 0]
+        # reg_nonzero = reg[reg != 0]
+
+        # print("[DEBUG] wh nonzero count:", wh_nonzero.numel())
+        # if wh_nonzero.numel() > 0:
+        #     print("[DEBUG] wh nonzero sample:", wh_nonzero[:10].cpu().numpy())
+
+        # print("[DEBUG] reg nonzero count:", reg_nonzero.numel())
+        # if reg_nonzero.numel() > 0:
+        #     print("[DEBUG] reg nonzero sample:", reg_nonzero[:10].cpu().numpy())
+        # print(f"[DEBUG] hm max: {hm.max().item():.4f}, min: {hm.min().item():.4f}")
+        # print(f"[DEBUG] wh mean: {wh.mean().item():.4f}, min: {wh.min().item():.4f}, max: {wh.max().item():.4f}")
+        # print(f"[DEBUG] reg mean: {reg.mean().item():.4f}, min: {reg.min().item():.4f}, max: {reg.max().item():.4f}")
+        # print("[DEBUG] wh sample:", wh[0, :, :5, :5].cpu().numpy())
+        # print("[DEBUG] reg sample:", reg[0, :, :5, :5].cpu().numpy())
+        # print(f"[DEBUG] hm shape: {hm.shape}")  # [B, N-1, 2, H, W]
+        # print(f"[DEBUG] wh shape: {wh.shape}")  # [B, 2, H, W]  
+        # print(f"[DEBUG] reg shape: {reg.shape}")  # [B, 2, H, W]
+        
         if reg is not None:
             dets =  ctdet_decode(hm[0].transpose(0,1), wh[0].transpose(0,1),
                     reg=reg[0].transpose(0,1), K=K)
         else:
             dets =  ctdet_decode(hm[0].transpose(0,1), wh[0].transpose(0,1),
                        reg=None, K=K)
+    # print("dets keys:", dets.keys())
+    # print("dets shape:", dets.shape)
+    # print("dets type:", type(dets))
     if return_time:
-        return output, dets, forward_time
+        return output,model.feature, dets, forward_time
     else:
-        return output, dets
+        return output,model.feature, dets
 
 def post_process(dets_all, meta, num_classes=1, scale=1, max_per_image=100):
     # 后处理
     rets = []
     dets_post = []
+    # print("dets_all type:", type(dets_all))
     dets_all = dets_all.unsqueeze(1).detach().cpu().numpy()
     for iii in range(dets_all.shape[0]):
         dets = dets_all[iii]

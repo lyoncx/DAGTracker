@@ -7,6 +7,8 @@ import torch
 import os
 
 from lib.test_utils.test import test
+from lib.test_utils.testdag import testdag
+# from lib.test_utils.testfast import testfast
 from lib.test_utils.test_update import test_update
 
 if __name__ == '__main__':
@@ -15,6 +17,7 @@ if __name__ == '__main__':
 
     os.environ['CUDA_VISIBLE_DEVICES'] = opt.gpus_str
     opt.device = torch.device('cuda' if opt.gpus[0] >= 0 else 'cpu')
+    print('using GPU:', opt.gpus_str)
 
     split = 'test'
     show_flag = opt.show_results
@@ -40,4 +43,8 @@ if __name__ == '__main__':
 
     # test_update(opt, split, modelPath, show_flag, results_name, save_mat=False, epoch=0)
 
-    results_return = test(opt, split, modelPath, show_flag, results_name, savemat)
+    if opt.track:
+        print('Using fast tracking test function!')
+        results_return = testdag(opt, split, modelPath, show_flag, results_name, savemat)
+    else:
+        results_return = test(opt, split, modelPath, show_flag, results_name, savemat)

@@ -7,6 +7,77 @@ from lib.models.spconv_utils import replace_feature, spconv
 # from lib.utils import common_utils
 from lib.models.spconv_backbone import post_act_block
 
+class WindmillSparseConv3d(spconv.SubMConv3d):
+    """
+    Drop-in replacement for spconv.SubMConv3d that fuses rotated kernels (windmill).
+    Implementation note:
+      - We DO NOT reassign self.weight (Parameter). Instead we copy fused_weight into self.weight.data
+        (inside torch.no_grad()) before calling parent's forward, then restore original data.
+      - If kernel plane (ky, kz) is not square (ky != kz), we fallback to original weight (no rotation).
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1,
+                 indice_key=None, bias=False, num_rotations=4):
+        super().__init__(in_channels, out_channels, kernel_size,
+                         stride=stride, padding=padding,
+                         bias=bias, indice_key=indice_key)
+        self.num_rotations = num_rotations
+        # learnable fusion weights (logits)
+        self.theta = nn.Parameter(torch.zeros(num_rotations))
+
+    def windmill_transform(self, weight):
+        """
+        weight: Parameter or Tensor with shape [out_ch, in_ch, kx, ky, kz]
+        Return fused_weight tensor with same shape.
+        If ky != kz then return weight (fallback).
+        """
+        # ensure tensor
+        w = weight
+        if w.ndim != 5:
+            return w  # unexpected shape - no transform
+
+        kx, ky, kz = w.shape[2], w.shape[3], w.shape[4]
+        # only rotate when plane is square (safe rot90)
+        if ky != kz:
+            return w
+
+        rotated = []
+        for i in range(self.num_rotations):
+            # rotate (ky, kz) plane by 90*i degrees
+            rotated.append(torch.rot90(w, i, dims=(-2, -1)))
+        # stacked: [R, out, in, kx, ky, kz]
+        stacked = torch.stack(rotated, dim=0)
+        alpha = torch.softmax(self.theta, dim=0).view(self.num_rotations, 1, 1, 1, 1, 1)
+        fused = torch.sum(alpha * stacked, dim=0)  # [out, in, kx, ky, kz]
+        return fused
+
+    def forward(self, input):
+        """
+        Safe forward:
+        - compute fused_weight (Tensor)
+        - copy fused_weight into self.weight.data (no_grad)
+        - call parent's forward (which uses self.weight)
+        - restore original self.weight.data (no_grad)
+        """
+        # compute fused weight (tensor)
+        fused = self.windmill_transform(self.weight)
+
+        # If fused is exactly the same object as self.weight, no need to copy/restore
+        # (but fused may be a new Tensor even if same content).
+        # We'll still do copy to be safe.
+        with torch.no_grad():
+            orig = self.weight.data.clone()  # keep copy on the same device
+            # copy fused into parameter storage
+            self.weight.data.copy_(fused)
+
+        try:
+            out = super().forward(input)  # spconv.SubMConv3d forward
+        finally:
+            # always restore original weights even if forward raises
+            with torch.no_grad():
+                self.weight.data.copy_(orig)
+
+        return out
 
 class SparseBasicBlock(spconv.SparseModule):
     expansion = 1
@@ -346,6 +417,18 @@ class UNetV2_3(nn.Module):
         """
         voxel_features, voxel_coords = batch_dict['voxel_features'], batch_dict['voxel_coords']
         batch_size = batch_dict['batch_size']
+
+        # print("spatial_shape =", self.sparse_shape)
+
+        # coords = voxel_coords
+        # print("t range:", coords[:,1].min().item(), coords[:,1].max().item())
+        # print("y range:", coords[:,2].min().item(), coords[:,2].max().item())
+        # print("x range:", coords[:,3].min().item(), coords[:,3].max().item())
+
+        # assert coords[:,1].max() < self.sparse_shape[0]
+        # assert coords[:,2].max() < self.sparse_shape[1]
+        # assert coords[:,3].max() < self.sparse_shape[2]
+
         input_sp_tensor = spconv.SparseConvTensor(
             features=voxel_features,
             indices=voxel_coords.int(),

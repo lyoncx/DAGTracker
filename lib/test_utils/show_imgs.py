@@ -2,7 +2,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 
-CONFIDENCE_thres = 0.3
+CONFIDENCE_thres = 0.03
 COLORS = [(255, 0, 0)]
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX

@@ -19,7 +19,8 @@ def eval_func_final(results_dir_tol, data_dir=None, data_name=None, conf_ths = N
     else:
         conf_thresh_all = [0.1,0.15,0.2,0.25,0.3]
     if data_name is None:
-        dataName = [3,5,2,8,10,6,9]
+        dataName = [2,8,15,16,18]
+        # dataName = [1,16,28,39,44,59,71,76,83,85,93,111,114,122,136,145,147,162,168,170]
     else:
         dataName = data_name
     if data_dir is None:
@@ -31,7 +32,7 @@ def eval_func_final(results_dir_tol, data_dir=None, data_name=None, conf_ths = N
     th_mean = 1
     th_std = 13
 
-    eval_new_mode = 'new'  # 'new' ###选择新的标注进行评测，或者是选择旧的标注进行评测
+    eval_new_mode = 'old'  # 'new' ###选择新的标注进行评测，或者是选择旧的标注进行评测
 
     conf_results = {}
 
@@ -77,8 +78,8 @@ def eval_func_final(results_dir_tol, data_dir=None, data_name=None, conf_ths = N
                     if eval_new_mode == 'new':
                         ANN_PATH = data_dir + 'labeleddata20230227/' + '%03d' % datafolder + '/img1/'
                     else:
-                        ANN_PATH = ANN_PATH0 + '%03d' % datafolder + '/xml_det/'
-                    # ANN_PATH = ANN_PATH0 + '%03d' % datafolder + '/xml/'
+                        # ANN_PATH = ANN_PATH0 + '%03d' % datafolder + '/xml_det/'
+                        ANN_PATH = ANN_PATH0 + '%03d' % datafolder + '/xml/'
                     if eval_mode == 'adaptive':
                         results_dir = results_dir0 + '%03d/coords_mean_%d_std_%d/' % (datafolder, th_mean, th_std)
                     elif eval_mode == 'fixed':
@@ -121,7 +122,7 @@ def eval_func_final(results_dir_tol, data_dir=None, data_name=None, conf_ths = N
                         det_metric.update(gt_t, det)
                         # print(det_metric.get_result())
                     #获取结果
-                    result = det_metric.get_result(img_size=[1024, 1024], seq_len=num_images)
+                    result = det_metric.get_result(img_size=[512, 512], seq_len=num_images)
                     if write_flag:
                         fid.write('&%.1f\t&%.1f\t&%.1f\t&%.1f\t&%.2e\t&%.2e\n' % (
                     result['recall'], result['prec'], result['f1'], result['pd'], result['fa_1'], result['fa_2']))

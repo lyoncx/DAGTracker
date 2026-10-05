@@ -40,12 +40,13 @@ def test(opt, split, modelPath, show_flag, results_name, save_mat=False, i_th=3)
         if not os.path.exists(save_mat_path_upper):
             os.mkdir(save_mat_path_upper)
 
-    test_upper_path = opt.data_dir + 'images/test1024/'
+    test_upper_path = opt.data_dir + 'test/'
 
     data_folder_list = os.listdir(test_upper_path)
     patch_len = opt.seqLen
 
     time_all = []
+    det_result = {}
 
     for ii in range(len(data_folder_list)):
         data_folder_path = os.path.join(test_upper_path, data_folder_list[ii], 'img1')
@@ -87,6 +88,21 @@ def test(opt, split, modelPath, show_flag, results_name, save_mat=False, i_th=3)
             gpus = GPUtil.getGPUs()
             gpu = gpus[0]
             print('patch_len: {} GPU used: {}/{}'.format(patch_len, gpu.memoryUsed, gpu.memoryTotal))
+            
+            video_id = data_folder_list[ii]
+            for det_i in range(len(dets_post)):
+                frame_id = int(patch_ims[det_i].split('.')[0])  # 例如 '000005.jpg' -> 5
+                dets_i = dets_post[det_i][1]  # 检测结果为 shape=(N, 5)，前四列为框，第五列为置信度
+                det_result[f"{video_id}-{frame_id:06d}"] = dets_i
+                print(f"Saving key: {video_id}-{frame_id:06d}")
+                # print("Available keys in det_result:", list(det_result.keys()))
+            np.save(os.path.join("/home/liangcx/workspace/CKDNet-SMTNet/SMTNet/util","det.npy"), det_result)
+
+            print(f"det_result has {len(det_result)} frames")
+            for k in list(det_result.keys())[:3]:
+                print(k, det_result[k].shape)
+                print(det_result[k][:2])  # 打印前两行
+
             ### view results
             if save_mat:
                 fig_save_name1 = os.path.join(save_mat_folder, '%03d_ori.png'%(pk+1))

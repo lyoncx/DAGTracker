@@ -250,3 +250,88 @@ def compute_rot_loss(output, target_bin, target_res, mask):
             valid_output2[:, 7], torch.cos(valid_target_res2[:, 1]))
         loss_res += loss_sin2 + loss_cos2
     return loss_bin1 + loss_bin2 + loss_res
+
+# ============================================================================
+# Motion Margin Loss (MMLoss) from MMTracker
+# ============================================================================
+
+def flow_ldam_focal(pred, gt, flow_score, scale=10, version='v3'):
+    """
+    logits 版 MMTracker 风格：在 logits 上减去基于光流的 delta，使正样本 loss 变大。
+    pred: 预测热图 (sigmoid 后概率) [B, C, H, W]
+    gt:   真实热图 [B, C, H, W]
+    """
+    pos_inds = gt.eq(1).float()
+    
+    neg_inds = gt.lt(1).float()
+    
+    neg_weights = torch.pow(1 - gt, 4)
+
+    # 检查 flow_score 是否有异常值
+    if torch.isnan(flow_score).any() or torch.isinf(flow_score).any():
+        return _neg_loss(pred, gt)
+    flow_score = torch.clamp(flow_score, min=0.0, max=10.0)
+
+    # 确保 flow_score 维度匹配 [B, C, H, W]
+    if len(flow_score.shape) == 3:
+        flow_score = flow_score.unsqueeze(1)
+    if flow_score.shape[1] == 1 and pred.shape[1] > 1:
+        flow_score = flow_score.repeat(1, pred.shape[1], 1, 1)
+    elif flow_score.shape[1] != pred.shape[1]:
+        raise ValueError(f"flow_score channel mismatch: {flow_score.shape[1]} vs {pred.shape[1]}")
+    if flow_score.shape[2:] != pred.shape[2:]:
+        flow_score = F.interpolate(flow_score, size=pred.shape[2:], mode='bilinear', align_corners=False)
+
+    # 计算 flow_delta（同原逻辑）
+    x_start = 5
+    if version == 'v1':
+        flow_delta = scale * (torch.sigmoid(flow_score) - 0.5)
+    elif version == 'v2':
+        flow_delta = scale * (torch.sigmoid((flow_score - x_start) / scale))
+    elif version == 'v3':
+        flow_delta = 0.5 * scale * (torch.sigmoid((flow_score - x_start) / scale))
+    else:
+        raise ValueError(f"Unknown version: {version}, should be 'v1', 'v2', or 'v3'")
+    # 限幅，避免过大 margin
+    flow_delta = torch.clamp(flow_delta, min=-1.0, max=0.5)
+
+    # 概率转 logits，避免 log(0)
+    pred_safe = torch.clamp(pred, 1e-6, 1 - 1e-6)
+    logits = torch.log(pred_safe) - torch.log(1 - pred_safe)
+
+    # 在 logits 上减去 delta（仅正样本）
+    logits_adjusted = logits - flow_delta * pos_inds
+
+    # 用 BCE with logits，并保留原先的 neg_weights 作为权重
+    bce = F.binary_cross_entropy_with_logits(logits_adjusted, gt, reduction="none")
+    weight = pos_inds + neg_weights * neg_inds
+    loss = (bce * weight).sum()
+
+    num_pos = pos_inds.sum()
+    loss = loss / (num_pos + 1e-8)
+
+    # 安全兜底
+    if torch.isnan(loss) or torch.isinf(loss):
+        return _neg_loss(pred, gt)
+    return loss
+
+
+class FocalLossWithMMLoss(nn.Module):
+    """
+    带 Motion Margin Loss 的 Focal Loss
+    当提供 flow_score 时使用 MMLoss，否则使用标准 Focal Loss
+    """
+    def __init__(self, use_mmloss=False, mmloss_scale=10, mmloss_version='v3'):
+        super(FocalLossWithMMLoss, self).__init__()
+        self.use_mmloss = use_mmloss
+        self.mmloss_scale = mmloss_scale
+        self.mmloss_version = mmloss_version
+        self.neg_loss = _neg_loss
+    
+    def forward(self, out, target, flow_score=None):
+        if self.use_mmloss and flow_score is not None:
+            return flow_ldam_focal(out, target, flow_score, 
+                                  scale=self.mmloss_scale, 
+                                  version=self.mmloss_version)
+        else:
+            return self.neg_loss(out, target)

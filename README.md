@@ -1,4 +1,4 @@
-# DAGTracker: Satellite Video Multi-Object Tracking
+# DAGTracker: Detection-Association-Global Optimization for Dense Vehicle Tracking in Satellite Videos
 ![DAGTracker framework](readme/framework.png)
 This repository contains the implementation and supplementary resources for **DAGTracker**, a three-stage framework for multi-object tracking of small and densely distributed vehicles in satellite videos.
 

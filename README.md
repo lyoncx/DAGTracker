@@ -55,32 +55,7 @@ The following command reproduces the reported unsupervised iterative MMLoss trai
 ```bash
 mkdir -p "${OUTPUT_DIR}"
 
-python train_sp_update.py \
-  --task ctdet_points \
-  --model_name sp_centerDet_minus \
-  --layers 3 \
-  --gpus 0,1 \
-  --datasetname rs_car \
-  --data_mode multi \
-  --data_dir "${DATA_DIR}" \
-  --exp_name DAGTracker \
-  --sup_mode 0 \
-  --unsup_iter 10 \
-  --off_flag True \
-  --down_ratio 1 \
-  --seqLen 20 \
-  --conf_filtered 0.2 \
-  --val_intervals 2 \
-  --lr 1.25e-4 \
-  --lr_step 30,45 \
-  --num_epochs 55 \
-  --batch_size 8 \
-  --data_sampling 5 \
-  --save_dir "${OUTPUT_DIR}" \
-  --use_mmloss \
-  --mmloss_scale 3.5 \
-  --mmloss_version v3 \
-  --flow_dir "${FLOW_DIR}"
+python train_sp_update.py --task ctdet_points --model_name sp_centerDet_minus --layers 3 --gpus 0,1 --datasetname rs_car --data_mode multi --data_dir "${DATA_DIR}" --exp_name DAGTracker --sup_mode 0 --unsup_iter 10 --off_flag True --down_ratio 1 --seqLen 20 --conf_filtered 0.2 --val_intervals 2 --lr 1.25e-4 --lr_step 30,45 --num_epochs 55 --batch_size 8 --data_sampling 5 --save_dir "${OUTPUT_DIR}" --use_mmloss --mmloss_scale 3.5 --mmloss_version v3 --flow_dir "${FLOW_DIR}"
 ```
 
 To resume training from a checkpoint, append the following options and replace the checkpoint path:
@@ -108,23 +83,7 @@ if [ ! -f "${MODEL_PATH}" ]; then
   exit 1
 fi
 
-"${PYTHON_CMD}" "${SCRIPT_PATH}" \
-  --task ctdet_points \
-  --model_name sp_centerDet_minus \
-  --layers 3 \
-  --gpus 0 \
-  --datasetname rs_car \
-  --data_mode multi \
-  --data_dir "${DATA_DIR}" \
-  --sup_mode 0 \
-  --off_flag True \
-  --down_ratio 1 \
-  --seqLen 20 \
-  --load_model "${MODEL_PATH}" \
-  --use_mmloss \
-  --mmloss_scale 3.5 \
-  --mmloss_version v3 \
-  --flow_dir "${FLOW_DIR}"
+"${PYTHON_CMD}" "${SCRIPT_PATH}" --task ctdet_points --model_name sp_centerDet_minus --layers 3 --gpus 0 --datasetname rs_car --data_mode multi --data_dir "${DATA_DIR}" --sup_mode 0 --off_flag True --down_ratio 1 --seqLen 20 --load_model "${MODEL_PATH}" --use_mmloss --mmloss_scale 3.5 --mmloss_version v3 --flow_dir "${FLOW_DIR}"
 ```
 
 The test command uses one GPU and loads the MMLoss-trained checkpoint. Make sure there is a space before each continued option; in particular, `--load_model` and `--use_mmloss` must remain separate arguments.
